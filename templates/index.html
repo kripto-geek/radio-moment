@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Classical Harmony Radio</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎻 Classical Harmony Radio</h1>
+            <p class="tagline">Where Timeless Music Meets Modern Listening</p>
+        </header>
+
+        <main>
+            <div class="player-box">
+                <div id="current-song">
+                    {% if current_song %}
+                    <div class="song-info">
+                        <h2 id="song-title">{{ current_song.song_name }}</h2>
+                        <p id="song-uploader">Uploaded by: {{ current_song.uploader }}</p>
+                    </div>
+                    <audio id="audio" controls autoplay>
+                        <source src="{{ url_for('static', filename='uploads/' + current_song.filename) }}" type="audio/mpeg">
+                    </audio>
+                    <div class="vote-controls">
+                        <button id="like-btn" onclick="vote('like')">
+                            <i class="fas fa-heart"></i>
+                            <span id="like-count">{{ current_song.likes }}</span>
+                        </button>
+                        <button id="dislike-btn" onclick="vote('dislike')">
+                            <i class="fas fa-thumbs-down"></i>
+                            <span id="dislike-count">{{ current_song.dislikes }}</span>
+                        </button>
+                    </div>
+                    {% else %}
+                    <div class="no-song">
+                        <p>🎵 The music hall is quiet... Be the first to share a masterpiece!</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="upload-box">
+                <h3><i class="fas fa-upload"></i> Share Your Masterpiece</h3>
+                <div class="upload-form">
+                    <input type="text" id="song_name" placeholder="Piece Name (e.g., 'Moonlight Sonata')" required>
+                    <input type="text" id="uploader_name" placeholder="Composer's Alias (Optional)">
+                    <div class="file-input">
+                        <input type="file" id="mp3_file" accept=".mp3">
+                        <label for="mp3_file" class="file-label">
+                            <i class="fas fa-music"></i> Choose MP3
+                        </label>
+                    </div>
+                    <button class="upload-btn" onclick="uploadSong()">
+                        <i class="fas fa-cloud-upload-alt"></i> Add to Queue
+                    </button>
+                    <div id="upload-status"></div>
+                </div>
+            </div>
+
+            <div class="queue-box">
+                <h3><i class="fas fa-list-ol"></i> Upcoming Performances</h3>
+                <ul id="queue-list">
+                    {% for song in queue %}
+                    <li>
+                        <span class="queue-title">{{ song.song_name }}</span>
+                        <span class="queue-uploader">- {{ song.uploader }}</span>
+                    </li>
+                    {% else %}
+                    <li class="empty-queue">No performances scheduled yet</li>
+                    {% endfor %}
+                </ul>
+                <div class="queue-stats">
+                    <span id="queue-count">{{ queue|length }}</span>/10 pieces in queue
+                </div>
+            </div>
+        </main>
+
+        <div id="notifications"></div>
+    </div>
+
+    <script>
+        const socket = io();
+        let hasVoted = false; // Track if user has voted for current song
+
+        // Real-time updates
+        socket.on('new_song', (song) => {
+            hasVoted = false; // Reset voting for new song
+            const playerDiv = document.getElementById('current-song');
+            const audio = document.getElementById('audio');
+            
+            if (song) {
+                playerDiv.innerHTML = `
+                    <div class="song-info">
+                        <h2 id="song-title">${song.song_name}</h2>
+                        <p id="song-uploader">Uploaded by: ${song.uploader}</p>
+                    </div>
+                    <audio id="audio" controls autoplay>
+                        <source src="/static/uploads/${song.filename}" type="audio/mpeg">
+                    </audio>
+                    <div class="vote-controls">
+                        <button id="like-btn" onclick="vote('like')">
+                            <i class="fas fa-heart"></i>
+                            <span id="like-count">${song.likes}</span>
+                        </button>
+                        <button id="dislike-btn" onclick="vote('dislike')">
+                            <i class="fas fa-thumbs-down"></i>
+                            <span id="dislike-count">${song.dislikes}</span>
+                        </button>
+                    </div>
+                `;
+                
+                // Re-attach audio ended listener
+                document.getElementById('audio').addEventListener('ended', () => {
+                    socket.emit('next_song');
+                });
+                
+                enableVoteButtons();
+            } else {
+                playerDiv.innerHTML = `
+                    <div class="no-song">
+                        <p>🎵 The music hall is quiet... Be the first to share a masterpiece!</p>
+                    </div>
+                `;
+            }
+        });
+
+        socket.on('vote_update', (song) => {
+            if (song) {
+                document.getElementById('like-count').textContent = song.likes;
+                document.getElementById('dislike-count').textContent = song.dislikes;
+            }
+        });
+
+        socket.on('queue_update', (data) => {
+            const queueList = document.getElementById('queue-list');
+            queueList.innerHTML = data.queue.length > 0 
+                ? data.queue.map(song => `
+                    <li>
+                        <span class="queue-title">${song.song_name}</span>
+                        <span class="queue-uploader">- ${song.uploader}</span>
+                    </li>
+                `).join('')
+                : '<li class="empty-queue">No performances scheduled yet</li>';
+                
+            document.getElementById('queue-count').textContent = data.queue.length;
+        });
+
+        function showNotification(message, type='info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.innerHTML = `
+                <i class="fas fa-${type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+                ${message}
+            `;
+            document.getElementById('notifications').appendChild(notification);
+            setTimeout(() => notification.remove(), 5000);
+        }
+
+        function disableVoteButtons() {
+            document.getElementById('like-btn').disabled = true;
+            document.getElementById('dislike-btn').disabled = true;
+        }
+
+        function enableVoteButtons() {
+            document.getElementById('like-btn').disabled = false;
+            document.getElementById('dislike-btn').disabled = false;
+        }
+
+        function vote(type) {
+            if (!hasVoted) {
+                socket.emit('vote', type);
+                disableVoteButtons();
+                hasVoted = true;
+                showNotification(`Your ${type} has been recorded!`, 'success');
+            }
+        }
+
+        async function uploadSong() {
+            const fileInput = document.getElementById('mp3_file');
+            const songName = document.getElementById('song_name').value;
+            const uploaderName = document.getElementById('uploader_name').value || 'Anonymous';
+            const statusDiv = document.getElementById('upload-status');
+
+            if (!fileInput.files[0]) {
+                showNotification('Please select an MP3 file first!', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('song_name', songName);
+            formData.append('uploader_name', uploaderName);
+
+            try {
+                const response = await fetch('/upload', { method: 'POST', body: formData });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showNotification('Your masterpiece has been added to the queue!', 'success');
+                    fileInput.value = ''; // Clear file input
+                } else {
+                    showNotification(data.error || 'Upload failed!', 'error');
+                }
+            } catch (error) {
+                showNotification('Network error - please try again', 'error');
+            }
+        }
+
+        // Initialize audio ended listener
+        const audio = document.getElementById('audio');
+        if (audio) {
+            audio.addEventListener('ended', () => {
+                socket.emit('next_song');
+            });
+        }
+    </script>
+</body>
+</html>
