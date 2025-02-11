@@ -1,4 +1,6 @@
-Flask
+flask
 gunicorn
 mutagen
 python-socketio
+flask-socketio
+flask-limiter
