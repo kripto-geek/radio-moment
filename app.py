@@ -31,7 +31,7 @@ def sanitize_song(song):
 @limiter.limit("1 per 5 minutes")
 def upload():
     global current_song
-    
+
     if 'file' not in request.files:
         return jsonify(error="No file uploaded"), 400
 
@@ -96,7 +96,7 @@ def handle_vote(vote_type):
             current_song['likes'] += 1
         elif vote_type == 'dislike':
             current_song['dislikes'] += 1
-        
+
         total = current_song['likes'] + current_song['dislikes']
         if total > 0 and (current_song['dislikes'] / total) > 0.5:
             next_song()
@@ -112,17 +112,17 @@ def next_song():
     else:
         current_song = None
         socketio.emit('player_stop')
-    
+
     sanitized_queue = [sanitize_song(song) for song in queue]
     socketio.emit('queue_update', {'queue': sanitized_queue})
 
 @app.route('/')
 def home():
-    return render_template('index.html', 
+    return render_template('index.html',
                          current_song=sanitize_song(current_song),
                          queue=[sanitize_song(s) for s in queue])
 
 if __name__ == '__main__':
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
-    socketio.run(app, debug=True)
+    socketio.run(app, allow_unsafe_werkzeug=True, debug=True)
